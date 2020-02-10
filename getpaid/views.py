@@ -9,8 +9,6 @@ from django.template.response import TemplateResponse
 from django.views.generic.base import RedirectView
 from django.views.generic.edit import FormView
 from getpaid.forms import PaymentMethodForm, ValidationError
-from getpaid.signals import (redirecting_to_payment_gateway_signal,
-                             order_additional_validation)
 
 
 logger = logging.getLogger(__name__)
@@ -35,30 +33,22 @@ class NewPaymentView(FormView):
 
     def form_valid(self, form):
         from getpaid.models import Payment
-        try:
-            order_additional_validation.send(
-                sender=None, request=self.request,
-                order=form.cleaned_data['order'],
-                backend=form.cleaned_data['backend'])
-        except ValidationError:
-            return self.form_invalid(form)
+        order = form.cleaned_data['order']
+        next_url, method, form, processor = Payment.run_payment(
+            order,
+            form.cleaned_data['backend'],
+            request=self.request
+        )
+        if next_url is None and getattr(order, 'recurring', False):
+            next_url = getattr(settings, 'GETPAID_SUCCESS_URL_NAME', None)
+            return http.HttpResponseRedirect(reverse(next_url))
 
-        payment = Payment.create(form.cleaned_data['order'],
-                                 form.cleaned_data['backend'])
-        processor = payment.get_processor()(payment)
-        gateway_url_tuple = processor.get_gateway_url(self.request)
-        payment.change_status('in_progress')
-        redirecting_to_payment_gateway_signal.send(
-            sender=None, request=self.request,
-            order=form.cleaned_data['order'], payment=payment,
-            backend=form.cleaned_data['backend'])
-
-        if gateway_url_tuple[1].upper() == 'GET':
-            return http.HttpResponseRedirect(gateway_url_tuple[0])
-        elif gateway_url_tuple[1].upper() == 'POST':
+        if method.upper() == 'GET':
+            return http.HttpResponseRedirect(next_url)
+        elif method.upper() == 'POST':
             context = self.get_context_data()
             context['gateway_url'] = processor.get_gateway_url(self.request)[0]
-            context['form'] = processor.get_form(gateway_url_tuple[2])
+            context['form'] = processor.get_form(form)
 
             return TemplateResponse(
                 request=self.request,
