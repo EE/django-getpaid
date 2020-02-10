@@ -137,7 +137,6 @@ class PaymentProcessor(PaymentProcessorBase):
         Tricky process that requires to get auth key, send order via POST and
         then present final URL for redirection to finalize payment.
         """
-        print('entered get_gateway_url')
         grant_type = self.get_backend_setting('grant_type', 'client_credentials')
         if grant_type == 'client_credentials':
             client_id = self.get_backend_setting('client_id')
@@ -210,10 +209,8 @@ class PaymentProcessor(PaymentProcessorBase):
             current_site,
             reverse('getpaid:payu_rest:confirm')
         )
-        print('notify:', notify_url)
-        # don't know why, but it's required even for
+        # don't know why, but it's required even for recurring payments
         customer_ip = getpaid_utils.get_ip_address(request) if request else '84.10.2.58'
-        print(customer_ip)
         params = dict(
             customerIp=customer_ip,
             merchantPosId=pos_id,
@@ -240,9 +237,8 @@ class PaymentProcessor(PaymentProcessorBase):
         )
         is_recurring_payment = getattr(self.payment.order, 'recurring', False)
         if is_recurring_payment:
-            print(self.payment.order.card_token)
             params.update({
-                'recurring': 'STANDARD',  # figure out how to pass if its FIRST or STANDARD
+                'recurring': 'STANDARD' if request is None else 'FIRST',
                 "payMethods": {
                     "payMethod": {
                         "value": self.payment.order.card_token,
@@ -258,7 +254,6 @@ class PaymentProcessor(PaymentProcessorBase):
         status = order_register_data.get('status', {}).get('statusCode', '')
         if status != 'SUCCESS':
             logger.error('Houston, we have a problem with this payment trajectory: {}'.format(status))
-            print('Houston, we have a problem with this payment trajectory: {}'.format(status))
             return reverse('getpaid:failure-fallback', kwargs=dict(pk=self.payment.pk)), 'GET', {}
         elif status == 'SUCCESS' and is_recurring_payment:
             # If we'r running first recurring payment we'll receive a new token, that shuld be saved elseware
