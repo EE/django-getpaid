@@ -2,11 +2,14 @@ import sys
 from datetime import datetime
 
 from django.apps import apps
+from django.core.exceptions import PermissionDenied, ImproperlyConfigured
 from django.db import models
 from django.utils.timezone import utc
 from django.utils.translation import ugettext_lazy as _
 from django.utils.encoding import python_2_unicode_compatible
 import six
+from prompt_toolkit.validation import ValidationError
+
 from .abstract_mixin import AbstractMixin
 from getpaid import signals
 from .utils import import_backend_modules
@@ -123,6 +126,27 @@ class PaymentFactory(models.Model, AbstractMixin):
         Called when payment was failed
         """
         self.change_status('failed')
+
+    @classmethod
+    def run_payment(cls, order, backend, request=None):
+        try:
+            signals.order_additional_validation.send(
+                sender=None, request=request,
+                order=order,
+                backend=backend)
+        except ValidationError:
+            raise PermissionDenied
+
+        payment = cls.create(order, backend)
+        processor = payment.get_processor()(payment)
+        next_url, method, form = processor.get_gateway_url(request)
+        payment.change_status('in_progress')
+        signals.redirecting_to_payment_gateway_signal.send(
+            sender=None, request=request,
+            order=order, payment=payment,
+            backend=backend)
+
+        return next_url, method, form, processor
 
 
 def register_to_payment(order_class, **kwargs):

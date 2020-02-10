@@ -10,6 +10,7 @@ from decimal import Decimal
 import pendulum
 import requests
 import simplejson as json
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.urls import reverse
 from django.utils.translation import ugettext_lazy as _
@@ -131,12 +132,12 @@ class PaymentProcessor(PaymentProcessorBase):
                 payment.change_status('cancelled')
         return 'OK'
 
-    def get_gateway_url(self, request):
+    def get_gateway_url(self, request=None):
         """
         Tricky process that requires to get auth key, send order via POST and
         then present final URL for redirection to finalize payment.
         """
-
+        print('entered get_gateway_url')
         grant_type = self.get_backend_setting('grant_type', 'client_credentials')
         if grant_type == 'client_credentials':
             client_id = self.get_backend_setting('client_id')
@@ -209,9 +210,12 @@ class PaymentProcessor(PaymentProcessorBase):
             current_site,
             reverse('getpaid:payu_rest:confirm')
         )
-
+        print('notify:', notify_url)
+        # don't know why, but it's required even for
+        customer_ip = getpaid_utils.get_ip_address(request) if request else '84.10.2.58'
+        print(customer_ip)
         params = dict(
-            customerIp=getpaid_utils.get_ip_address(request),
+            customerIp=customer_ip,
             merchantPosId=pos_id,
             description=self.get_order_description(self.payment, self.payment.order),
             currencyCode=self.payment.currency.upper(),
@@ -234,6 +238,18 @@ class PaymentProcessor(PaymentProcessorBase):
             continueUrl='http://127.0.0.1:8000/',
             # payMethods=None,
         )
+        is_recurring_payment = getattr(self.payment.order, 'recurring', False)
+        if is_recurring_payment:
+            print(self.payment.order.card_token)
+            params.update({
+                'recurring': 'STANDARD',  # figure out how to pass if its FIRST or STANDARD
+                "payMethods": {
+                    "payMethod": {
+                        "value": self.payment.order.card_token,
+                        "type": "CARD_TOKEN"
+                    }
+                }
+            })
 
         order_url = "{gateway_url}api/v2_1/orders".format(gateway_url=self._GATEWAY_URL)
 
@@ -242,7 +258,14 @@ class PaymentProcessor(PaymentProcessorBase):
         status = order_register_data.get('status', {}).get('statusCode', '')
         if status != 'SUCCESS':
             logger.error('Houston, we have a problem with this payment trajectory: {}'.format(status))
+            print('Houston, we have a problem with this payment trajectory: {}'.format(status))
             return reverse('getpaid:failure-fallback', kwargs=dict(pk=self.payment.pk)), 'GET', {}
+        elif status == 'SUCCESS' and is_recurring_payment:
+            # If we'r running first recurring payment we'll receive a new token, that shuld be saved elseware
+            multiuse_token = order_register_data.get('payMethods').get('payMethod').get('value')
+            if multiuse_token.startswith('TOKC_'):
+                self.payment.order.update_card_token(multiuse_token)
+
         final_url = order_register_data.get('redirectUri')
 
         return final_url, 'GET', {}
