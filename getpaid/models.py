@@ -1,14 +1,13 @@
+import six
 import sys
 from datetime import datetime
 
 from django.apps import apps
-from django.core.exceptions import PermissionDenied, ImproperlyConfigured
+from django.core.exceptions import PermissionDenied, ImproperlyConfigured, ValidationError
 from django.db import models
 from django.utils.timezone import utc
 from django.utils.translation import ugettext_lazy as _
 from django.utils.encoding import python_2_unicode_compatible
-import six
-from prompt_toolkit.validation import ValidationError
 
 from .abstract_mixin import AbstractMixin
 from getpaid import signals
