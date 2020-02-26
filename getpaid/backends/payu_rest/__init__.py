@@ -209,6 +209,12 @@ class PaymentProcessor(PaymentProcessorBase):
             current_site,
             reverse('getpaid:payu_rest:confirm')
         )
+        # TODO: make view agnostic for payment status
+        continue_url = "http{}://{}{}".format(
+            's' if use_ssl else '',
+            current_site,
+            reverse(getattr(settings, 'GETPAID_SUCCESS_URL_NAME'))
+        )
         # don't know why, but it's required even for recurring payments
         customer_ip = getpaid_utils.get_ip_address(request) if request else '84.10.2.58'
         params = dict(
@@ -232,7 +238,7 @@ class PaymentProcessor(PaymentProcessorBase):
             extOrderId=str(self.payment.pk),
             # validityTime='',
             # additionalDescription='',
-            continueUrl='http://127.0.0.1:8000/',
+            continueUrl=continue_url,
             # payMethods=None,
         )
         is_recurring_payment = getattr(self.payment.order, 'recurring', False)
@@ -256,8 +262,8 @@ class PaymentProcessor(PaymentProcessorBase):
             logger.error('Houston, we have a problem with this payment trajectory: {}'.format(status))
             return reverse('getpaid:failure-fallback', kwargs=dict(pk=self.payment.pk)), 'GET', {}
         elif status == 'SUCCESS' and is_recurring_payment:
-            # If we'r running first recurring payment we'll receive a new token, that shuld be saved elseware
-            multiuse_token = order_register_data.get('payMethods').get('payMethod').get('value')
+            # If we'r running first recurring payment we'll receive a new token, that should be saved elsewhere
+            multiuse_token = order_register_data.get('payMethods', {}).get('payMethod', {}).get('value', '')
             if multiuse_token.startswith('TOKC_'):
                 self.payment.order.update_card_token(multiuse_token)
 
