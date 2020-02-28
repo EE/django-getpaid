@@ -44,8 +44,7 @@ class PaymentProcessor(PaymentProcessorBase):
     )
     BACKEND_LOGO_URL = 'getpaid/backends/payu_rest/payu_logo.png'
 
-    # _GATEWAY_URL = 'https://secure.payu.com/'
-    _GATEWAY_URL = 'https://secure.snd.payu.com/'
+    _GATEWAY_URL = 'https://secure.snd.payu.com/' if settings.PAYMENTS_TEST else 'https://secure.payu.com/'
     _ACCEPTED_LANGS = (
         "pl", "en", "de", "cs", "bg", "el", "es", "et", "fi", "fr", "hr",
         "hu", "it", "lt", "lv", "pt", "ro", "ru", "sk", "sl", "sv", "uk",
@@ -137,6 +136,7 @@ class PaymentProcessor(PaymentProcessorBase):
         Tricky process that requires to get auth key, send order via POST and
         then present final URL for redirection to finalize payment.
         """
+
         grant_type = self.get_backend_setting('grant_type', 'client_credentials')
         if grant_type == 'client_credentials':
             client_id = self.get_backend_setting('client_id')
