@@ -258,10 +258,16 @@ class PaymentProcessor(PaymentProcessorBase):
         order_register = requests.post(order_url, json=params, headers=headers, allow_redirects=False)
         order_register_data = order_register.json()
         status = order_register_data.get('status', {}).get('statusCode', '')
-        if status != 'SUCCESS':
+
+        # for readability we decided to make success a positive condition
+        # WARNING_CONTINUE_3DS is thrown with recurring payment and is nearly a success
+        if status == 'SUCCESS' or (status == 'WARNING_CONTINUE_3DS' and is_recurring_payment):
+            pass
+        else:
             logger.error('Houston, we have a problem with this payment trajectory: {}'.format(status))
             return reverse('getpaid:failure-fallback', kwargs=dict(pk=self.payment.pk)), 'GET', {}
-        elif status == 'SUCCESS' and is_recurring_payment:
+
+        if is_recurring_payment and (status in ['SUCCESS', 'WARNING_CONTINUE_3DS']):
             # If we'r running first recurring payment we'll receive a new token, that should be saved elsewhere
             multiuse_token = order_register_data.get('payMethods', {}).get('payMethod', {}).get('value', '')
             if multiuse_token.startswith('TOKC_'):
