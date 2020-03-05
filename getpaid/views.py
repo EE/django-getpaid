@@ -75,5 +75,10 @@ class FallbackView(RedirectView):
             url_name = getattr(settings, 'GETPAID_FAILURE_URL_NAME', None)
 
         if url_name is not None:
-            return reverse(url_name, kwargs={'pk': self.payment.order_id})
+            use_uuid = getattr(settings, 'GETPAID_ORDER_MODEL_USES_UUID', False)
+            if use_uuid:
+                kwargs = {'uuid': self.payment.order.uuid}
+            else:
+                kwargs = {'pk': self.payment.order_id}
+            return reverse(url_name, kwargs=kwargs)
         return self.payment.order.get_absolute_url()
